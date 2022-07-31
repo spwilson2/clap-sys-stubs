@@ -1,0 +1,3 @@
+[submodule "clap-sys"]
+	path = clap-sys
+	url = https://github.com/glowcoil/clap-sys
