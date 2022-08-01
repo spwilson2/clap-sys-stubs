@@ -5,3 +5,12 @@ version = 3
 [[package]]
 name = "clap-stubs"
 version = "0.1.0"
+dependencies = [
+ "clap-sys",
+]
+
+[[package]]
+name = "clap-sys"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27f4e06657d33d5d194db1155cef359c359483a4170362bf4e105146dd0109e3"

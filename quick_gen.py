@@ -3,19 +3,22 @@ import re
 import os
 import struct 
 import textwrap
+from pathlib import Path
+import subprocess
 
+# Adjusted from 
 # https://www.w3resource.com/python-exercises/string/python-data-type-string-exercise-96.php
 def camel_case(s):
   s = re.sub(r"(_|-)+", " ", s).title().replace(" ", "")
-  return ''.join([s[0].lower(), s[1:]])
+  return ''.join(s)
 
-def gen_source(writer, struct_name, data_fields, fn_fields):
+def gen_source_for_struct(writer, struct_name, data_fields, fn_fields):
 
     initializers = []
     # Write function stubs, save initializers
     for ident, typesig in fn_fields.items():
         writer.write(textwrap.dedent(f'''\
-            unsafe extern "C" fn {ident}{typesig} {{todo!()}}
+            unsafe extern "C" fn {ident}{typesig} {{todo!()}}\n
         '''))
 
         initializers.append(f'{ident}: Some({ident})')
@@ -40,24 +43,70 @@ def gen_source(writer, struct_name, data_fields, fn_fields):
     writer.write(textwrap.dedent(f'''\
     pub trait {trait_name} {{
         fn new() -> Self;
-    }}
+    }}\n
     impl {trait_name} for {struct_name} {{
         fn new() -> Self {{
             Self {{
 {initializers}
             }}
         }}
-    }}
+    }}\n
     '''))
 
     
 
+def get_module_name_from_filepath(crate, src_file):
+    src_mod_name = os.path.splitext(os.path.basename(src_file))[0]
+
+    paths = Path(src_file).parts
+    # Get to src
+    src_idx = paths.index('src')
+    # Then all names after that are module name
+    mods = [crate] + list(paths[src_idx+1:len(paths)-1]) + [src_mod_name]
+    return '::'.join(mods)
+
+def gen_import_statements(writer, src_name, existing_imports):
+    crate = 'clap_sys'
+    clap_sys_mod = get_module_name_from_filepath(crate, src_name)
+    writer.write(f'use {clap_sys_mod}::*;\n')
+    for i in existing_imports:
+        i = re.sub(' crate::', f' {crate}::', i)
+        # Translate any crate:: into ${crate}
+        writer.write(i + '\n')
+
+def gen_mod_statements(writer, mod_statements):
+    for m in mod_statements:
+        writer.write(m + '\n')
+
+def gen_warning_supresses(writer):
+    writer.write('#![allow(dead_code, unused_variables, unreachable_code, unused_imports)]\n')
 
 def parse_gen_file(src_file, dst_file):
-    fwriter = None
-    with open(src_file, 'r') as f:
-        # Find each struct,
-        for m in re.finditer(r'struct (?P<ident>[\w_]*) {(?P<contents>.*?)}', f.read(), re.DOTALL):
+    with open(src_file, 'r') as freader, open(dst_file, 'w') as fwriter:
+        # Write supression for any warnings stub methods will cause
+        gen_warning_supresses(fwriter)
+
+        # Find all use statements
+        mod_statements = []
+        for m in re.finditer(r'pub mod .*?;', freader.read(), re.DOTALL):
+            mod_statements.append(m.group(0))
+        gen_mod_statements(fwriter, mod_statements)
+
+        # # Skip writing use statements for mod crates, they only export heirarchy.
+        if not mod_statements:
+            # Reparse file for use statements
+            freader.seek(0)
+            use_statements = []
+            for m in re.finditer(r'use .*?;', freader.read(), re.DOTALL):
+                use_statements.append(m.group(0))
+            gen_import_statements(fwriter, src_file, use_statements)
+
+        # Split up the use from the impls by a line.
+        fwriter.write('\n')
+
+        # Reparse file for structs
+        freader.seek(0)
+        for m in re.finditer(r'struct (?P<ident>[\w_]*) {(?P<contents>.*?)}', freader.read(), re.DOTALL):
             struct_name = m['ident']
             print(struct_name)
 
@@ -84,52 +133,25 @@ def parse_gen_file(src_file, dst_file):
                 type_ = type_.rstrip().lstrip()
                 data_fields[ident] = type_
 
-            if fn_fields or data_fields:
-                if not fwriter:
-                    fwriter = open(dst_file, 'w')
-                gen_source(fwriter, struct_name, data_fields, fn_fields)
+            gen_source_for_struct(fwriter, struct_name, data_fields, fn_fields)
 
-        #for l in f:
-        #    ## Iterate through, look for struct <ident>
-        #    #if m := re.search('struct (?P<ident>[\w_]*)', l):
-        #    #    struct_name = m.group('ident')
+if __name__ == '__main__':
+    # Enable running from anywhere
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-        #    if m := re.search('pub (?P<ident>[\w_]*): (?P<type>.*),', l):
-        #        # TODO Now check if the field is a func ptr
-        #        ident = m['ident']
-        #        if m:= re.search(r'Option\<unsafe extern "C" fn(?P<type>\(.*)\>', m['type']):
-        #            struct_fields[ident] = m['type']
+    for (dirpath, dirnames, filenames) in os.walk('clap-sys/src'):
+        for f in filenames:
+            (_, ext) = os.path.splitext(f)
+            if ext != '.rs':
+                continue
 
-        #    #terminate at } 
-        #    if m := re.search('}', l):
-        #        if struct_fields:
-        #            if not fwriter:
-        #                fwriter = open(dst_file, 'w')
-        #            gen_source(fwriter, struct_name, struct_fields)
-        #        struct_name = None
-        #        struct_fields = {}
-    if fwriter:
-        fwriter.close()
+            # Trim out clap-sys path, write to our own src
+            dst_dirpath = dirpath[len('clap-sys/'):]
+            if not os.path.exists(dst_dirpath):
+                os.makedirs(dst_dirpath)
+            dst_file = os.path.join(dst_dirpath, f)
+            src_path = os.path.join(dirpath, f)
+            parse_gen_file(src_path, dst_file)
 
-for (dirpath, dirnames, filenames) in os.walk('clap-sys/src'):
-    for f in filenames:
-        (_, ext) = os.path.splitext(f)
-        if ext != '.rs':
-            continue
-
-        dst_fname = f
-
-        # Don't ovewrite lib.rs since we'll keep manually written imports there.
-        if dst_fname == 'lib.rs':
-            dst_fname = 'lib_gen.rs'
-        if dst_fname == 'mod.rs':
-            dst_fname = 'mod_gen.rs'
-
-        # Trim out clap-sys
-        dst_dirpath = dirpath[len('clap-sys/'):]
-        if not os.path.exists(dst_dirpath):
-            os.makedirs(dst_dirpath)
-        dst_file = os.path.join(dst_dirpath, dst_fname)
-        src_path = os.path.join(dirpath, f)
-        parse_gen_file(src_path, dst_file)
-
+    subprocess.check_call('cargo fmt', shell=True)
+    subprocess.check_call('cargo check', shell=True)
