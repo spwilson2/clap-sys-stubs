@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_variables, unreachable_code, unused_imports)]
 pub mod ambisonic;
 pub mod check_for_update;
 pub mod cv;

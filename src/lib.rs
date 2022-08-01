@@ -1,9 +1,9 @@
-pub mod ext;
-
+#![allow(dead_code, unused_variables, unreachable_code, unused_imports)]
 pub mod audio_buffer;
 pub mod color;
 pub mod entry;
 pub mod events;
+pub mod ext;
 pub mod fixedpoint;
 pub mod host;
 pub mod id;

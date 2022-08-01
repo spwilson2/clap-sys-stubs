@@ -1,7 +1,7 @@
-pub mod draft;
-
+#![allow(dead_code, unused_variables, unreachable_code, unused_imports)]
 pub mod audio_ports;
 pub mod audio_ports_config;
+pub mod draft;
 pub mod event_registry;
 pub mod gui;
 pub mod latency;
